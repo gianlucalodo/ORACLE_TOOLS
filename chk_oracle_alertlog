@@ -1,0 +1,155 @@
+#!/usr/bin/perl 
+
+###
+### Script that print today Oracle Alertlog error 
+### The script aggregate the line of alertlog with the corresponding timestamp, example:
+### this lines:
+###    Tue Oct 31 15:10:55 2017
+###    Archived Log entry 1908046 added for thread 1 sequence 967406 ID 0xd1545620 dest 1
+###    Tue Oct 31 15:17:09 2017
+###    Thread 1 advanced to log sequence 967408 (LGWR switch)
+###    Current log# 1 seq# 967408 mem# 0
+### become:
+###    Tue Oct 31 15:10:55 2017 Archived Log entry 1908046 added for thread 1 sequence 967406 ID 0xd1545620 dest 1
+###    Tue Oct 31 15:17:09 2017 Thread 1 advanced to log sequence 967408 (LGWR switch) Current log# 1 seq# 967408 mem# 0
+### because it is easier to view the timestamp error
+###
+### Author Gianluca Lodo 18/03/2013 
+###
+
+use POSIX;
+
+$workdir=`dirname $0`;
+chomp($workdir);
+$host=`hostname`;
+chomp($host);
+
+### Date format: Wed Oct 20 12:31:51 2004
+$wday = strftime "%a", localtime(time());
+$month = strftime "%h", localtime(time());
+$day = strftime "%d", localtime(time());
+$year = strftime "%Y", localtime(time());
+
+
+
+$indexfile = "${workdir}/indexfile_${host}.txt";
+$tmpdayfile = "${workdir}/tmpfile_${year}${month}${day}_${host}";
+$alertfile = "INSERT HERE ALERTLOG FILENAME";
+
+sub readfile
+{
+open(FRAT, "@_") || return "-1";
+@data=<FRAT>;
+close(FRAT);
+return @data;
+}
+
+$tmpstring="";
+%tmphash=();
+
+system("clear");
+$title="Check Oracle log alert errors on $host";
+$titlength = map $_, $title =~ /(.)/gs;
+print("\n\033[1m$title\n" . "-" x $titlength . "\033[0m\n\n");
+print("Log: $alertfile\n\n\n");
+
+### if the file containing the list of logs and indexes is present then I read the list and put it in the hash
+### otherwise I create the empty hash
+@oldloglist=readfile($indexfile);
+chomp(@oldloglist);
+if ( "@oldloglist" ne "-1" ) {
+        foreach $dl (@oldloglist){
+                if ($dl =~ /(.*):::(.*)/) { $loghash{$1} = $2; }
+                #print("---FILE: $1 ----seek $loghash{$1}\n");  
+        }
+} else { 
+        %loghash=();
+}
+
+
+
+### check if the new logs are in hash and if these are not present, then add them
+if(!exists($loghash{$alertfile})){
+        $loghash{$alertfile} = 0;
+        #print("--> Add new log to list: $alertfile\n");
+} 
+
+
+$current=0;
+open(DEST, ">$indexfile");
+$current=$current+1;
+undef @raw_data;
+@raw_data=();
+
+open(FDAT, "$alertfile") || return "-1";
+#unlink $endfile;
+#unlink @data;
+@data=();
+$start=$loghash{$alertfile};
+#print("start $start\n");
+seek (FDAT,0,2);
+$endfile=tell(FDAT);
+#print("endfile $endfile\n");
+if ( $start != $endfile ) {
+seek (FDAT,$start,0);
+while(<FDAT>){
+        chomp($_);
+        #             day of week 
+        #                |     month    day     hour   min    sec   year 
+        #                |       |       |       |     |     |       |
+        if ($_ =~ /^(\S+)\s+(\S+)\s+(\d+)\s+(\d+):(\d+):(\d+)\s+(\d+)/) {
+                if ( exists($tmphash{$tmpstring}) ) { 
+                        if ( ($tmphash{$tmpstring} =~ /ORA-/) && ($tmpstring =~ /^$wday\s+$month\s+$day\s+\d+:\d+:\d+\s+$year/) ){
+                                $tmpout=sprintf("%s -%s\n",$tmpstring, $tmphash{$tmpstring});
+                                push(@data, $tmpout);
+                        }
+                }
+                $tmpstring="$1 $2 $3 $4:$5:$6 $7";
+                $tmphash{$tmpstring}= "";
+        }
+        else{
+                if ($tmpstring ne ""){
+                        $tmphash{$tmpstring} = "$tmphash{$tmpstring} $_";
+                }       
+        }
+        $endfile = tell(FDAT);
+}
+}
+
+print DEST "$alertfile\:\:\:$endfile\n";                                                                                
+close(FDAT);
+close(DEST);      
+
+### Write the found errors in a tmp file of today 
+
+open(TMP, ">>$tmpdayfile");
+foreach $line (@data){
+        chomp($line);
+        print TMP "$line\n";
+}
+close(TMP);
+
+$numline=`wc -l $tmpdayfile | /usr/bin/awk '{print\$1}'`;
+chomp($numline);
+if ( $numline != 0 ){
+        print "\n\033[1mWARNING, oracle error of today:\033[0m\n\n";
+        system("cat ${tmpdayfile}");
+}
+else {
+        print "\nNo ORACLE error for today ---> OK\n\n";
+}
+
+print "\nERRORS:\n";
+if ( $numline != 0 ){
+        system("cat ${tmpdayfile}");
+}
+#print "\n\n\n";
+
+### Delete tmp and old log 
+$numoldfile=`ls -1 ${workdir}/tmpfile* | grep -v \"${year}${month}${day}\" | wc -l | bc`;
+if ( $numoldfile != 0 ){
+        @listrmfile=`ls -1 ${workdir}/TMP/tmpfile* | grep -v \"${year}${month}${day}\"`;
+        foreach $lll (@listrmfile){
+                system("rm -f $lll");
+        }
+}
