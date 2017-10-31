@@ -148,7 +148,7 @@ if ( $numline != 0 ){
 ### Delete tmp and old log 
 $numoldfile=`ls -1 ${workdir}/tmpfile* | grep -v \"${year}${month}${day}\" | wc -l | bc`;
 if ( $numoldfile != 0 ){
-        @listrmfile=`ls -1 ${workdir}/TMP/tmpfile* | grep -v \"${year}${month}${day}\"`;
+        @listrmfile=`ls -1 ${workdir}/tmpfile* | grep -v \"${year}${month}${day}\"`;
         foreach $lll (@listrmfile){
                 system("rm -f $lll");
         }
